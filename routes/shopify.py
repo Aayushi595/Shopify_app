@@ -5,33 +5,48 @@ import shopify
 import requests
 from config import WAPUSH_API_URL
 
+app = Flask(__name__)
+shopify_bp = Blueprint('shopify', __name__)
+app.register_blueprint(shopify_bp)
+
 shopify_bp = Blueprint('shopify', __name__)
 
-# Shopify API Integration
-# ...
 
-# Route to handle incoming Shopify webhook notifications
+# This route will be hit whenever Shopify sends a webhook request to the plugin. 
 @shopify_bp.route('/webhook', methods=['POST'])
 def handle_shopify_webhook():
     try:
-        # Verify the webhook request is from Shopify (you can implement this verification)
         # Extract the webhook payload
         data = request.get_json()
 
-        # Check if the webhook is an order creation or order status change event
-        if data.get('topic') in ['orders/create', 'orders/updated']:
-            # Extract relevant information from the webhook payload
-            order = data['order']
-            customer = order['customer']
-            customer_name = customer['first_name']
-            customer_phone = customer.get('phone')
-            order_id = order['order_number']
-            order_status = order['financial_status']  # You can customize this based on your needs
+        
+        if data.get('topic') in ['orders/create', 'orders/cancelled','orders/fulfillment']:
+            customer_name = data['customer']['first_name']
+            customer_phone = data['customer'].get('phone')
+            order_id = data['id']
+        
+        if data.get('topic') == ['orders/paid']:
+            customer_name = data['customer']['first_name']
+            customer_phone = data['customer'].get('phone')
+            order_id = data['id']
+            order_status = data['fulfillment_status']
+
+
+        if data['topic'] == 'orders/create':
+            message = f"Hello {customer_name}, thank you for placing an order with order ID {order_id}. Your order is currently being processed."
+
+        elif data['topic'] == 'orders/cancelled':
+            message = f"Hello {customer_name}, we regret to inform you that your order with order ID {order_id} has been cancelled."
+
+        elif data['topic'] == 'orders/fulfilled':
+            message = f"Hello {customer_name}, your order with order ID {order_id} has been shipped and is on its way to you."
+
+        elif data['topic'] == 'orders/paid':
+            message = f"Hello {customer_name}, your order with order ID {order_id} is {fulfillment_status} . Thank you for your purchase."
+
+        
             
-            # Construct the WhatsApp message
-            message = f"Hello {customer_name}, your order with order ID {order_id} is {order_status}."
-            
-            # Call your WAPush API to send the WhatsApp notification
+            # Calling WAPush API to send the WhatsApp notification
             response = requests.post(WAPUSH_API_URL, json={
                 "phone_number": customer_phone,
                 "message": message
@@ -44,7 +59,7 @@ def handle_shopify_webhook():
             
             return jsonify({"message": "Webhook handled successfully."}), 200
 
-        # Handle other webhook events if needed
+    
         
         return jsonify({"message": "Webhook event not handled."}), 200
 

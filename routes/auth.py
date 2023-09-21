@@ -1,38 +1,72 @@
-# routes/auth.py
+
 
 from flask import Blueprint, request, redirect, session
-from config import SHOPIFY_API_KEY, ASSISTRO_AUTH_API
+from config import SHOPIFY_API_KEY, ASSISTRO_AUTH_API, SHOPIFY_API_VERSION, redirect_url, webhook_endpoint
+
 
 auth_bp = Blueprint('auth', __name__)
 
-# Redirect users to Shopify for OAuth authentication
+#fuunction for creating the webhook event
+def create_shopify_webhooks(access_token, webhook_endpoint, shop_name):
+    events = ['orders/create', 'orders/fulfilled', 'orders/paid', 'orders/cancelled']
+
+    for event in events:
+        endpoint = f"https://{shop_name}.myshopify.com/admin/api/{SHOPIFY_API_VERSION}/webhooks.json"
+        headers = {
+            "Content-Type": "application/json",
+            "X-Shopify-Access-Token": access_token
+        }
+
+        webhook_data = {
+            "webhook": {
+                "topic": event,
+                "address": webhook_endpoint ,  
+                "format": "json"
+            }
+        }
+
+        response = requests.post(endpoint, json=webhook_data, headers=headers)
+        
+        #for testing purpose only
+        if response.status_code == 201:
+            print(f"Webhook for {event} created successfully.")
+        else:
+            print(f"Failed to create webhook for {event}.")
+            print(f"Response: {response.status_code} - {response.text}")
+
+
+
+# Redirect store owners to Shopify for OAuth authentication when he wants to add our plugin
 @auth_bp.route('/auth/shopify', methods=['GET'])
 def authenticate_shopify():
     shop = request.args.get('shop')
     
-    # Redirect to Shopify's OAuth authorization URL
-    redirect_uri = 'https://localhost/apps/Plugin/auth/shopify/callback'
+    redirect_uri = 'https://localhost/apps/auth/shopify/callback'
     auth_url = f"https://{shop}.myshopify.com/admin/oauth/authorize?client_id={SHOPIFY_API_KEY}&scope=read_orders&redirect_uri={redirect_uri}"
     
     return redirect(auth_url)
 
-# Handle the OAuth callback from Shopify
+
+
+# Handling the OAuth callback from Shopify with access token for the store owner
 @auth_bp.route('/auth/shopify/callback', methods=['GET'])
 def shopify_callback():
-    
-    # Extract the access token and shop name from the callback
-    # Store the Shopify access token in the session
-    
     access_token = request.args.get('access_token')
-    shop = request.args.get('shop')
+    shop_nm = request.args.get('shop')
     
-    # Store the Shopify access token in the session
+
     session['access_token'] = access_token
     session['shop_owner'] = shop
     
-    return redirect('/register')  # Assistro ko external api ko use krna h.
+    if 'access_token' in session:
+        create_shopify_webhooks(session['access_token'], webhook_endpoint, shop_nm)
+        return redirect('ASSISTRO_AUTH_API')
+    else:
+        return redirect('redirect_url')
+    
 
-# Implement a route to log out the user if needed
+
+
 @auth_bp.route('/logout', methods=['GET'])
 def logout():
     session.pop('access_token', None)
